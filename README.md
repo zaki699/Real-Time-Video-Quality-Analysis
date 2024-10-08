@@ -7,6 +7,7 @@ This project provides a set of Python scripts designed for video analysis, model
 - **prepare_dataset.py**: 
     - Creates or updates a CSV file that contains essential data for running video analysis on your entire catalog.
     - Supports various video analysis tasks, including frame interval customization and dynamic aspect ratio handling for multiple resolutions.
+    - Predicts video quality metrics (PSNR, SSIM, VMAF) using pre-trained machine learning models
   
 - **training_model.py**:
     - Builds machine learning models based on SSIM, VMAF, and PSNR metrics using the prepared CSV dataset.
