@@ -39,9 +39,7 @@ def calculate_advanced_motion_complexity(video_path, frame_interval=10):
             raise IOError("Error: Unable to read video.")
         prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
         total_motion = []
-        frame_count = 0
-        motion_changes = []
-        prev_motion = None
+        frame_count = 1  # We have already read the first frame
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -62,11 +60,6 @@ def calculate_advanced_motion_complexity(video_path, frame_interval=10):
             avg_motion = np.mean(mag)
             total_motion.append(avg_motion)
 
-            if prev_motion is not None:
-                motion_change = abs(avg_motion - prev_motion)
-                motion_changes.append(motion_change)
-
-            prev_motion = avg_motion
             prev_gray = curr_gray
 
         # Add logging to debug the number of frames processed
@@ -75,11 +68,8 @@ def calculate_advanced_motion_complexity(video_path, frame_interval=10):
         # Smooth the motion complexity values
         smoothed_motion = smooth_data(total_motion)
 
-        # Calculate temporal consistency by averaging changes in motion between frames
-        avg_temporal_consistency = np.mean(motion_changes) if len(motion_changes) > 0 else 0.0
-
-        # Return the average motion magnitude and temporal consistency as the final motion complexity score
-        return np.mean(smoothed_motion) + avg_temporal_consistency
+        # Return the average motion magnitude as the final motion complexity score
+        return np.mean(smoothed_motion) if len(smoothed_motion) > 0 else 0.0
     finally:
         cap.release()
 
@@ -213,7 +203,13 @@ def calculate_edge_detection_complexity(video_path, resize_width, resize_height,
     smoothed_edges = smooth_data(total_edges)
     return np.mean(smoothed_edges) if len(smoothed_edges) > 0 else 0.0
 
-# Final average scene complexity with adjustable resizing resolution
+# Normalization function
+def min_max_normalize(value, min_val, max_val):
+    if max_val - min_val == 0:
+        return 0.0
+    return (value - min_val) / (max_val - min_val)
+
+# Final average scene complexity with normalization and weighted average
 def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
     logger.info("Calculating advanced motion complexity...")
     advanced_motion_complexity = calculate_advanced_motion_complexity(video_path, frame_interval)
@@ -232,11 +228,56 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     logger.info(f"Histogram Complexity: {histogram_complexity:.2f}")
     logger.info(f"Edge Detection Complexity: {edge_detection_complexity:.2f}")
 
-    # Calculate average complexity across all methods
-    average_complexity = (advanced_motion_complexity + dct_complexity + temporal_dct_complexity +
-                          histogram_complexity + edge_detection_complexity) / 5
-    return average_complexity
+    # Define min and max values for normalization (these values should be based on your dataset)
+    metric_min_values = {
+        'Advanced Motion Complexity': 0.0,
+        'DCT Complexity': 1e6,
+        'Temporal DCT Complexity': 0.0,
+        'Histogram Complexity': 0.0,
+        'Edge Detection Complexity': 0.0
+    }
 
+    metric_max_values = {
+        'Advanced Motion Complexity': 10.0,
+        'DCT Complexity': 5e7,
+        'Temporal DCT Complexity': 1e7,
+        'Histogram Complexity': 8.0,
+        'Edge Detection Complexity': resize_width * resize_height  # Maximum possible edges
+    }
+
+    # Normalize metrics
+    normalized_metrics = {}
+    normalized_metrics['Advanced Motion Complexity'] = min_max_normalize(
+        advanced_motion_complexity, metric_min_values['Advanced Motion Complexity'], metric_max_values['Advanced Motion Complexity'])
+    normalized_metrics['DCT Complexity'] = min_max_normalize(
+        dct_complexity, metric_min_values['DCT Complexity'], metric_max_values['DCT Complexity'])
+    normalized_metrics['Temporal DCT Complexity'] = min_max_normalize(
+        temporal_dct_complexity, metric_min_values['Temporal DCT Complexity'], metric_max_values['Temporal DCT Complexity'])
+    normalized_metrics['Histogram Complexity'] = min_max_normalize(
+        histogram_complexity, metric_min_values['Histogram Complexity'], metric_max_values['Histogram Complexity'])
+    normalized_metrics['Edge Detection Complexity'] = min_max_normalize(
+        edge_detection_complexity, metric_min_values['Edge Detection Complexity'], metric_max_values['Edge Detection Complexity'])
+
+    # Define weights for each metric (adjust these weights as needed)
+    weights = {
+        'Advanced Motion Complexity': 0.25,
+        'DCT Complexity': 0.25,
+        'Temporal DCT Complexity': 0.25,
+        'Histogram Complexity': 0.15,
+        'Edge Detection Complexity': 0.10
+    }
+
+    # Calculate weighted average
+    total_weight = sum(weights.values())
+    weighted_sum = sum(normalized_metrics[metric] * weights[metric] for metric in normalized_metrics)
+    overall_complexity = weighted_sum / total_weight
+
+    logger.info(f"Normalized Metrics: {normalized_metrics}")
+    logger.info(f"Overall Scene Complexity (Weighted Average): {overall_complexity:.4f}")
+
+    return overall_complexity
+
+# Function to run FFmpeg to compute PSNR, SSIM, and VMAF
 def run_ffmpeg_metrics(reference_video, distorted_video, vmaf_model_path=None):
     # Construct FFmpeg command
     ffmpeg_path = 'ffmpeg'
@@ -351,7 +392,7 @@ def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bit
         'CRF': crf,
         'SSIM': ssim,
         'PSNR': psnr,
-        'VMAF': vmaf  # This may be None if VMAF was not calculated
+        'VMAF': vmaf
     }
 
 def update_csv(metrics, csv_file='video_quality_data.csv'):
@@ -498,7 +539,7 @@ if __name__ == "__main__":
         resolutions_to_test = generate_resolutions(aspect_ratio, base_heights)
         logger.info(f"Resolutions to test: {resolutions_to_test}")
 
-        # Select a resolution (you can still test resolutions if desired)
+        # Select a resolution (you can adjust this as needed)
         selected_width, selected_height = resolutions_to_test[1]  # Adjust based on your observations
         logger.info(f"Selected resolution for processing: {selected_width}x{selected_height}")
 
