@@ -1,8 +1,6 @@
 import argparse
 import re
-import shutil
 import subprocess
-import tempfile
 import cv2
 import numpy as np
 import pandas as pd
@@ -11,6 +9,8 @@ import sys
 import logging
 import time
 import math
+import tempfile
+import shutil
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -30,111 +30,76 @@ def smooth_data(data, smoothing_factor=0.8):
                             (1 - smoothing_factor) * smoothed_data[i - 1])
     return smoothed_data
 
-# Scene cut detection function
-def detect_scene_cuts(video_path, threshold=0.5):
+# Advanced Motion Complexity calculation with frame interval
+def calculate_advanced_motion_complexity(video_path, frame_interval=10):
     cap = cv2.VideoCapture(video_path)
-    scene_cuts = []
-    prev_hist = None
-    frame_idx = 0
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Calculate histogram for the current frame
-        hist = cv2.calcHist([frame], [0, 1, 2], None, [8, 8, 8],
-                            [0, 256, 0, 256, 0, 256])
-        hist = cv2.normalize(hist, hist).flatten()
-
-        if prev_hist is not None:
-            # Compute the correlation between histograms
-            hist_diff = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
-            # If the correlation is below the threshold, consider it a scene cut
-            if hist_diff < threshold:
-                scene_cuts.append(frame_idx)
-        else:
-            # First frame is always a scene cut
-            scene_cuts.append(frame_idx)
-
-        prev_hist = hist
-        frame_idx += 1
-
-    cap.release()
-    return scene_cuts
-
-# Advanced Motion Complexity calculation with scene cuts
-def calculate_advanced_motion_complexity(video_path):
-    cap = cv2.VideoCapture(video_path)
-    total_motion = []
-    motion_changes = []
-
-    # Detect scene cuts
-    scene_cuts = detect_scene_cuts(video_path)
-
     try:
-        prev_gray = None
+        ret, prev_frame = cap.read()
+        if not ret:
+            raise IOError("Error: Unable to read video.")
+        prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        total_motion = []
+        frame_count = 0
+        motion_changes = []
         prev_motion = None
 
-        for frame_idx in scene_cuts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
                 continue
 
             curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            if prev_gray is not None:
-                # Calculate Optical Flow between consecutive frames
-                flow = cv2.calcOpticalFlowFarneback(prev_gray, curr_gray, None,
-                                                    0.5, 3, 15, 3, 5, 1.2, 0)
+            # Calculate Optical Flow between consecutive frames
+            flow = cv2.calcOpticalFlowFarneback(prev_gray, curr_gray, None,
+                                                0.5, 3, 15, 3, 5, 1.2, 0)
 
-                # Calculate the magnitude of motion vectors (motion magnitude)
-                mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-                avg_motion = np.mean(mag)
-                total_motion.append(avg_motion)
+            # Calculate the magnitude of motion vectors (motion magnitude)
+            mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+            avg_motion = np.mean(mag)
+            total_motion.append(avg_motion)
 
-                if prev_motion is not None:
-                    motion_change = abs(avg_motion - prev_motion)
-                    motion_changes.append(motion_change)
+            if prev_motion is not None:
+                motion_change = abs(avg_motion - prev_motion)
+                motion_changes.append(motion_change)
 
-                prev_motion = avg_motion
-            else:
-                # For the first frame
-                total_motion.append(0)
-                prev_motion = 0
-
+            prev_motion = avg_motion
             prev_gray = curr_gray
 
+        # Add logging to debug the number of frames processed
+        logger.info(f"Number of frames processed for motion complexity: {len(total_motion)}")
+
+        # Smooth the motion complexity values
+        smoothed_motion = smooth_data(total_motion)
+
+        # Calculate temporal consistency by averaging changes in motion between frames
+        avg_temporal_consistency = np.mean(motion_changes) if len(motion_changes) > 0 else 0.0
+
+        # Return the average motion magnitude and temporal consistency as the final motion complexity score
+        return np.mean(smoothed_motion) + avg_temporal_consistency
     finally:
         cap.release()
 
-    # Smooth the motion complexity values
-    smoothed_motion = smooth_data(total_motion)
-
-    # Calculate temporal consistency by averaging changes in motion between frames
-    avg_temporal_consistency = np.mean(motion_changes) if len(motion_changes) > 0 else 0.0
-
-    # Return the average motion magnitude and temporal consistency as the final motion complexity score
-    return np.mean(smoothed_motion) + avg_temporal_consistency
-
-# DCT complexity with scene cuts
-def calculate_dct_scene_complexity(video_path, resize_width, resize_height):
+# DCT complexity with frame interval
+def calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
     cap = cv2.VideoCapture(video_path)
     total_dct_energy = []
-
-    # Detect scene cuts
-    scene_cuts = detect_scene_cuts(video_path)
+    frame_count = 0
 
     try:
-        for frame_idx in scene_cuts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
                 continue
 
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray_frame = cv2.resize(gray_frame, (resize_width, resize_height))
+            gray_frame = cv2.resize(gray_frame, (resize_width, resize_height))  # Resize for DCT calculation
 
             dct_frame = cv2.dct(np.float32(gray_frame))
             energy = np.sum(dct_frame ** 2)
@@ -142,28 +107,31 @@ def calculate_dct_scene_complexity(video_path, resize_width, resize_height):
     finally:
         cap.release()
 
+    # Add logging to debug the number of frames processed
+    logger.info(f"Number of frames processed for DCT complexity: {len(total_dct_energy)}")
+
     # Smooth the DCT complexity values
     smoothed_dct = smooth_data(total_dct_energy)
     return np.mean(smoothed_dct) if len(smoothed_dct) > 0 else 0.0
 
-# Temporal DCT complexity with scene cuts
-def calculate_temporal_dct(video_path, resize_width, resize_height):
+# Temporal DCT complexity with frame interval
+def calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval=10):
     cap = cv2.VideoCapture(video_path)
     total_temporal_dct_energy = []
+    frame_count = 0
     prev_frame_dct = None
 
-    # Detect scene cuts
-    scene_cuts = detect_scene_cuts(video_path)
-
     try:
-        for frame_idx in scene_cuts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
                 continue
 
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray_frame = cv2.resize(gray_frame, (resize_width, resize_height))
+            gray_frame = cv2.resize(gray_frame, (resize_width, resize_height))  # Resize for DCT calculation
             curr_frame_dct = cv2.dct(np.float32(gray_frame))
 
             if prev_frame_dct is not None:
@@ -175,23 +143,26 @@ def calculate_temporal_dct(video_path, resize_width, resize_height):
     finally:
         cap.release()
 
+    # Add logging to debug the number of frames processed
+    logger.info(f"Number of frames processed for Temporal DCT complexity: {len(total_temporal_dct_energy)}")
+
     # Smooth the Temporal DCT complexity values
     smoothed_temporal_dct = smooth_data(total_temporal_dct_energy)
     return np.mean(smoothed_temporal_dct) if len(smoothed_temporal_dct) > 0 else 0.0
 
-# Histogram complexity with scene cuts
-def calculate_histogram_complexity(video_path, resize_width, resize_height):
+# Histogram complexity with frame interval
+def calculate_histogram_complexity(video_path, resize_width, resize_height, frame_interval=10):
     cap = cv2.VideoCapture(video_path)
     total_entropy = []
-
-    # Detect scene cuts
-    scene_cuts = detect_scene_cuts(video_path)
+    frame_count = 0
 
     try:
-        for frame_idx in scene_cuts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
                 continue
 
             # Resize frame
@@ -204,23 +175,26 @@ def calculate_histogram_complexity(video_path, resize_width, resize_height):
     finally:
         cap.release()
 
+    # Add logging to debug the number of frames processed
+    logger.info(f"Number of frames processed for Histogram complexity: {len(total_entropy)}")
+
     # Smooth the histogram complexity values
     smoothed_entropy = smooth_data(total_entropy)
     return np.mean(smoothed_entropy) if len(smoothed_entropy) > 0 else 0.0
 
-# Edge Detection complexity with scene cuts
-def calculate_edge_detection_complexity(video_path, resize_width, resize_height):
+# Edge Detection complexity with frame interval
+def calculate_edge_detection_complexity(video_path, resize_width, resize_height, frame_interval=10):
     cap = cv2.VideoCapture(video_path)
     total_edges = []
-
-    # Detect scene cuts
-    scene_cuts = detect_scene_cuts(video_path)
+    frame_count = 0
 
     try:
-        for frame_idx in scene_cuts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
                 continue
 
             # Resize frame
@@ -232,22 +206,25 @@ def calculate_edge_detection_complexity(video_path, resize_width, resize_height)
     finally:
         cap.release()
 
+    # Add logging to debug the number of frames processed
+    logger.info(f"Number of frames processed for Edge Detection complexity: {len(total_edges)}")
+
     # Smooth the edge complexity values
     smoothed_edges = smooth_data(total_edges)
     return np.mean(smoothed_edges) if len(smoothed_edges) > 0 else 0.0
 
 # Final average scene complexity with adjustable resizing resolution
-def calculate_average_scene_complexity(video_path, resize_width, resize_height):
+def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
     logger.info("Calculating advanced motion complexity...")
-    advanced_motion_complexity = calculate_advanced_motion_complexity(video_path)
+    advanced_motion_complexity = calculate_advanced_motion_complexity(video_path, frame_interval)
     logger.info("Calculating DCT scene complexity...")
-    dct_complexity = calculate_dct_scene_complexity(video_path, resize_width, resize_height)
+    dct_complexity = calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval)
     logger.info("Calculating temporal DCT complexity...")
-    temporal_dct_complexity = calculate_temporal_dct(video_path, resize_width, resize_height)
+    temporal_dct_complexity = calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval)
     logger.info("Calculating histogram complexity...")
-    histogram_complexity = calculate_histogram_complexity(video_path, resize_width, resize_height)
+    histogram_complexity = calculate_histogram_complexity(video_path, resize_width, resize_height, frame_interval)
     logger.info("Calculating edge detection complexity...")
-    edge_detection_complexity = calculate_edge_detection_complexity(video_path, resize_width, resize_height)
+    edge_detection_complexity = calculate_edge_detection_complexity(video_path, resize_width, resize_height, frame_interval)
 
     logger.info(f"Advanced Motion Complexity: {advanced_motion_complexity:.2f}")
     logger.info(f"DCT Complexity: {dct_complexity:.2f}")
@@ -260,14 +237,9 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height):
                           histogram_complexity + edge_detection_complexity) / 5
     return average_complexity
 
-def run_ffmpeg(input_video, crf, output_video, vmaf_model_path):
-    # Validate VMAF model path
-    if not os.path.isfile(vmaf_model_path):
-        raise FileNotFoundError(f"VMAF model not found at {vmaf_model_path}")
-
+def run_ffmpeg_metrics(reference_video, distorted_video, vmaf_model_path=None):
     # Construct FFmpeg command
     ffmpeg_path = 'ffmpeg'
-    # Ensure the logs are stored in a specific directory
     log_dir = os.getcwd()
     psnr_log = os.path.join(log_dir, 'psnr.log')
     ssim_log = os.path.join(log_dir, 'ssim.log')
@@ -280,24 +252,42 @@ def run_ffmpeg(input_video, crf, output_video, vmaf_model_path):
     psnr_log_escaped = quote_path(psnr_log)
     ssim_log_escaped = quote_path(ssim_log)
     vmaf_log_escaped = quote_path(vmaf_log)
-    vmaf_model_path_escaped = quote_path(vmaf_model_path)
+
+    filters = []
+    filters.append(f"[0:v][1:v]psnr=stats_file={psnr_log_escaped}")
+    filters.append(f"[0:v][1:v]ssim=stats_file={ssim_log_escaped}")
+
+    # Build the libvmaf filter options
+    libvmaf_options = []
+    if vmaf_model_path:
+        # Validate VMAF model path
+        if not os.path.isfile(vmaf_model_path):
+            raise FileNotFoundError(f"VMAF model not found at {vmaf_model_path}")
+        vmaf_model_path_escaped = quote_path(vmaf_model_path)
+        libvmaf_options.append(f"model_path={vmaf_model_path_escaped}")
+    else:
+        logger.info("VMAF model path not provided; using FFmpeg's default VMAF model.")
+
+    libvmaf_options.append(f"log_path={vmaf_log_escaped}")
+    libvmaf_options.append("log_fmt=json")
+
+    # Combine libvmaf options
+    libvmaf_options_str = ':'.join(libvmaf_options)
+    filters.append(f"[0:v][1:v]libvmaf={libvmaf_options_str}")
+
+    filter_complex = ';'.join(filters)
 
     cmd = [
         ffmpeg_path,
-        '-i', input_video,
-        '-c:v', 'libx264',
-        '-crf', str(crf),
-        '-preset', 'medium',
-        '-lavfi', (
-            f"[0:v]split=3[psnr_in][ssim_in][vmaf_in];"
-            f"[psnr_in]psnr=stats_file={psnr_log_escaped};"
-            f"[ssim_in]ssim=stats_file={ssim_log_escaped};"
-            f"[vmaf_in]libvmaf="
-            f"log_path={vmaf_log_escaped}:log_fmt=json"
-        ),
+        '-i', distorted_video,
+        '-i', reference_video,
+        '-filter_complex', filter_complex,
         '-f', 'null',
         '-'
     ]
+
+    # For debugging, print the command
+    logger.debug("FFmpeg Command: %s", ' '.join(cmd))
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
@@ -310,9 +300,10 @@ def run_ffmpeg(input_video, crf, output_video, vmaf_model_path):
         logger.error("FFmpeg process failed with return code %s", process.returncode)
         logger.error("FFmpeg stderr: %s", stderr.decode())
         raise RuntimeError(f"FFmpeg process failed with return code {process.returncode}")
+
     return stdout, stderr
 
-def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bitrate, resolution, frame_rate, resize_width, resize_height):
+def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bitrate, resolution, frame_rate, resize_width, resize_height, frame_interval=10):
     # Initialize metrics
     psnr = None
     ssim = None
@@ -322,7 +313,7 @@ def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bit
     if os.path.isfile(psnr_log):
         with open(psnr_log) as f:
             content = f.read()
-            match = re.search(r'psnr_avg:(\s*\d+\.\d+)', content)
+            match = re.search(r'average:(\s*\d+\.\d+)', content)
             if match:
                 psnr = float(match.group(1))
     else:
@@ -350,7 +341,7 @@ def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bit
 
     # Calculate scene complexity
     logger.info("Calculating average scene complexity...")
-    scene_complexity = calculate_average_scene_complexity(video_file, resize_width, resize_height)
+    scene_complexity = calculate_average_scene_complexity(video_file, resize_width, resize_height, frame_interval)
 
     return {
         'Scene Complexity': scene_complexity,
@@ -360,7 +351,7 @@ def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bit
         'CRF': crf,
         'SSIM': ssim,
         'PSNR': psnr,
-        'VMAF': vmaf
+        'VMAF': vmaf  # This may be None if VMAF was not calculated
     }
 
 def update_csv(metrics, csv_file='video_quality_data.csv'):
@@ -424,50 +415,7 @@ def generate_resolutions(aspect_ratio, base_heights):
         resolutions.append((base_width, base_height))
     return resolutions
 
-def run_ffmpeg_metrics(reference_video, distorted_video, vmaf_model_path):
-    # Validate VMAF model path
-    if not os.path.isfile(vmaf_model_path):
-        raise FileNotFoundError(f"VMAF model not found at {vmaf_model_path}")
-
-    # Construct FFmpeg command
-    ffmpeg_path = 'ffmpeg'
-    log_dir = os.getcwd()
-    psnr_log = os.path.join(log_dir, 'psnr.log')
-    ssim_log = os.path.join(log_dir, 'ssim.log')
-    vmaf_log = os.path.join(log_dir, 'vmaf.json')
-
-    cmd = [
-        ffmpeg_path,
-        '-i', distorted_video,
-        '-i', reference_video,
-        '-lavfi', (
-            f"[0:v][1:v]psnr=stats_file={psnr_log};"
-            f"[0:v][1:v]ssim=stats_file={ssim_log};"
-            f"[0:v][1:v]libvmaf="
-            f"log_path={vmaf_log}:log_fmt=json"
-        ),
-        '-f', 'null',
-        '-'
-    ]
-
-    # For debugging, print the command
-    logger.debug("FFmpeg Command: %s", ' '.join(cmd))
-
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-
-    # Print FFmpeg output for debugging
-    logger.debug("FFmpeg Output: %s", stdout.decode())
-    logger.debug("FFmpeg Error Output: %s", stderr.decode())
-
-    if process.returncode != 0:
-        logger.error("FFmpeg process failed with return code %s", process.returncode)
-        logger.error("FFmpeg stderr: %s", stderr.decode())
-        raise RuntimeError(f"FFmpeg process failed with return code {process.returncode}")
-
-    return stdout, stderr
-
-def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model_path, resize_width, resize_height):
+def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model_path, resize_width, resize_height, frame_interval=10):
     # Validate input video
     if not os.path.isfile(input_video):
         raise FileNotFoundError(f"The input video file {input_video} does not exist.")
@@ -505,7 +453,8 @@ def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model
             resolution=resolution,
             frame_rate=frame_rate,
             resize_width=resize_width,
-            resize_height=resize_height
+            resize_height=resize_height,
+            frame_interval=frame_interval
         )
 
         logger.info("Metrics extracted: %s", metrics)
@@ -525,7 +474,7 @@ def parse_arguments():
     # Define command-line arguments
     parser.add_argument('input_video', type=str, help="Path to the input video file.")
     parser.add_argument('output_video', type=str, help="Path to the output video file.")
-    parser.add_argument('vmaf_model_path', type=str, help="Path to the VMAF model file.")
+    parser.add_argument('--vmaf_model_path', type=str, default=None, help="Path to the VMAF model file. If not provided, FFmpeg's default model will be used.")
     parser.add_argument('--crf', type=int, default=23, help="CRF (Constant Rate Factor) value for FFmpeg encoding. Default is 23.")
 
     return parser.parse_args()
@@ -553,14 +502,18 @@ if __name__ == "__main__":
         selected_width, selected_height = resolutions_to_test[1]  # Adjust based on your observations
         logger.info(f"Selected resolution for processing: {selected_width}x{selected_height}")
 
+        # Define frame interval
+        frame_interval = 10  # Process every 10th frame
+
         # Proceed with the rest of the processing using the selected resolution
         process_video_and_extract_metrics(
             input_video=args.input_video,
             crf=args.crf,
             output_video=args.output_video,
-            vmaf_model_path=args.vmaf_model_path,
+            vmaf_model_path=args.vmaf_model_path,  # May be None
             resize_width=selected_width,
-            resize_height=selected_height
+            resize_height=selected_height,
+            frame_interval=frame_interval
         )
 
         logger.info(f"Processing completed for video: {args.input_video}")
