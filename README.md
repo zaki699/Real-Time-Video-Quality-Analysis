@@ -60,6 +60,11 @@ python video_analysis.py --input_video /path/to/video --crf 23 --output_video /p
 - Frame Interval: Adjust the frame interval to balance computational efficiency and accuracy (Default: every 10 frames).
 - Dnamic Aspect Ratio Handling: The script automatically supports various aspect ratios (e.g., 4:3, 16:9), ensuring accuracy in the complexity metrics.
 - Optimal Resolution: The script helps you find the best resolution that provides acceptable accuracy while reducing computation time.
+- Encodes a video using FFmpeg with a specific CRF value.
+- Extracts actual video quality metrics (PSNR, SSIM, VMAF) from FFmpeg logs.
+- Predicts video quality metrics (PSNR, SSIM, VMAF) using pre-trained machine learning models.
+- Saves both predicted and actual metrics to a CSV file.
+- Displays a progress bar during video encoding and processing.
 
 ### Contributions
 Feel free to contribute to this repository by submitting a pull request or opening an issue!
