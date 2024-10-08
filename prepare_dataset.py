@@ -313,7 +313,7 @@ def extract_metrics_from_logs(psnr_log, ssim_log, vmaf_log, video_file, crf, bit
     if os.path.isfile(psnr_log):
         with open(psnr_log) as f:
             content = f.read()
-            match = re.search(r'average:(\s*\d+\.\d+)', content)
+            match = re.search(r'psnr_avg:(\s*\d+\.\d+)', content)
             if match:
                 psnr = float(match.group(1))
     else:
