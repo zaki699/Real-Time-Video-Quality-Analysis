@@ -85,6 +85,7 @@ The results of the analysis are saved in a CSV file (video_quality_data.csv). Th
 	- Histogram Complexity
 	- Edge Detection Complexity
 	- Color Histogram Complexity
+ 	- Framerate Variation
 	- PSNR, SSIM, and VMAF (Quality Metrics)
 	- Bitrate, Frame Rate, and Resolution
 
