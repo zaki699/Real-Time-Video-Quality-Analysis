@@ -345,32 +345,19 @@ def min_max_normalize(value, min_val, max_val):
         return 0.0
     return (value - min_val) / (max_val - min_val)
 
-# Final average scene complexity with normalization and weighted average
-def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
-    logger.info("Calculating advanced motion complexity...")
-    advanced_motion_complexity = calculate_advanced_motion_complexity(video_path, frame_interval)
-    
-    logger.info("Calculating DCT scene complexity...")
-    dct_complexity = calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval)
-    
-    logger.info("Calculating temporal DCT complexity...")
-    temporal_dct_complexity = calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval)
-    
-    logger.info("Calculating histogram complexity...")
-    histogram_complexity = calculate_color_histogram_complexity(video_path, frame_interval, resize_width, resize_height)
-    
-    logger.info("Calculating edge detection complexity...")
-    edge_detection_complexity = calculate_edge_detection_complexity(video_path, resize_width, resize_height, frame_interval)
-    
-    logger.info("Calculating ORB feature complexity...")
-    orb_feature_complexity = calculate_orb_feature_complexity(video_path, frame_interval, resize_width, resize_height)
-
-    logger.info(f"Advanced Motion Complexity: {advanced_motion_complexity:.2f}")
-    logger.info(f"DCT Complexity: {dct_complexity:.2f}")
-    logger.info(f"Temporal DCT Complexity: {temporal_dct_complexity:.2f}")
-    logger.info(f"Histogram Complexity: {histogram_complexity:.2f}")
-    logger.info(f"Edge Detection Complexity: {edge_detection_complexity:.2f}")
-    logger.info(f"ORB Feature Complexity: {orb_feature_complexity:.2f}")
+def compute_and_normalize_metrics(
+    advanced_motion_complexity, 
+    dct_complexity, 
+    temporal_dct_complexity, 
+    histogram_complexity, 
+    edge_detection_complexity, 
+    orb_feature_complexity, 
+    color_histogram_complexity,
+    resize_width,
+    resize_height):
+    """
+    Function to compute and normalize all metrics, including edge detection and color histogram.
+    """
 
     # Define min and max values for normalization (these values should be based on your dataset)
     metric_min_values = {
@@ -379,7 +366,8 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         'Temporal DCT Complexity': 0.0,
         'Histogram Complexity': 0.0,
         'Edge Detection Complexity': 0.0,
-        'ORB Feature Complexity': 0.0
+        'ORB Feature Complexity': 0.0,
+        'Color Histogram Complexity': 0.0
     }
 
     metric_max_values = {
@@ -387,8 +375,9 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         'DCT Complexity': 5e7,
         'Temporal DCT Complexity': 1e7,
         'Histogram Complexity': 8.0,
-        'Edge Detection Complexity': resize_width * resize_height,  # Maximum possible edges
-        'ORB Feature Complexity': 5000  # Adjust this value based on expected keypoints
+        'Edge Detection Complexity': resize_width * resize_height,  # Use provided resize dimensions
+        'ORB Feature Complexity': 1000.0,  # Adjust based on your observations
+        'Color Histogram Complexity': 8.0  # Maximum entropy based on normalized histogram
     }
 
     # Normalize metrics
@@ -405,15 +394,18 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         edge_detection_complexity, metric_min_values['Edge Detection Complexity'], metric_max_values['Edge Detection Complexity'])
     normalized_metrics['ORB Feature Complexity'] = min_max_normalize(
         orb_feature_complexity, metric_min_values['ORB Feature Complexity'], metric_max_values['ORB Feature Complexity'])
+    normalized_metrics['Color Histogram Complexity'] = min_max_normalize(
+        color_histogram_complexity, metric_min_values['Color Histogram Complexity'], metric_max_values['Color Histogram Complexity'])
 
-    # Define weights for each metric (adjust these weights as needed)
+    # Define weights for each metric
     weights = {
         'Advanced Motion Complexity': 0.20,
-        'DCT Complexity': 0.20,
-        'Temporal DCT Complexity': 0.20,
+        'DCT Complexity': 0.15,
+        'Temporal DCT Complexity': 0.15,
         'Histogram Complexity': 0.15,
         'Edge Detection Complexity': 0.10,
-        'ORB Feature Complexity': 0.15
+        'ORB Feature Complexity': 0.15,
+        'Color Histogram Complexity': 0.10
     }
 
     # Calculate weighted average
@@ -424,7 +416,42 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     logger.info(f"Normalized Metrics: {normalized_metrics}")
     logger.info(f"Overall Scene Complexity (Weighted Average): {overall_complexity:.4f}")
 
-    return overall_complexity
+    return normalized_metrics, overall_complexity
+
+def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
+    logger.info("Calculating advanced motion complexity...")
+    advanced_motion_complexity = calculate_advanced_motion_complexity(video_path, frame_interval)
+    logger.info("Calculating DCT scene complexity...")
+    dct_complexity = calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval)
+    logger.info("Calculating temporal DCT complexity...")
+    temporal_dct_complexity = calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval)
+    logger.info("Calculating histogram complexity...")
+    histogram_complexity = calculate_histogram_complexity(video_path, resize_width, resize_height, frame_interval)
+    logger.info("Calculating edge detection complexity...")
+    edge_detection_complexity = calculate_edge_detection_complexity(video_path, resize_width, resize_height, frame_interval)
+    logger.info("Calculating ORB feature complexity...")
+    orb_feature_complexity = calculate_orb_feature_complexity(video_path, frame_interval, resize_width, resize_height)
+    logger.info("Calculating color histogram complexity...")
+    color_histogram_complexity = calculate_color_histogram_complexity(video_path, frame_interval, resize_width, resize_height)
+
+    logger.info(f"Advanced Motion Complexity: {advanced_motion_complexity:.2f}")
+    logger.info(f"DCT Complexity: {dct_complexity:.2f}")
+    logger.info(f"Temporal DCT Complexity: {temporal_dct_complexity:.2f}")
+    logger.info(f"Histogram Complexity: {histogram_complexity:.2f}")
+    logger.info(f"Edge Detection Complexity: {edge_detection_complexity:.2f}")
+    logger.info(f"ORB Feature Complexity: {orb_feature_complexity:.2f}")
+    logger.info(f"Color Histogram Complexity: {color_histogram_complexity:.2f}")
+
+    # Return all metrics
+    return (
+        advanced_motion_complexity,
+        dct_complexity,
+        temporal_dct_complexity,
+        histogram_complexity,
+        edge_detection_complexity,
+        orb_feature_complexity,
+        color_histogram_complexity
+    )
 
 def calculate_temporal_dct_frame(frame, resize_width, resize_height, prev_frame_dct=None):
     """
@@ -748,9 +775,42 @@ def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model
         # Extract bitrate, resolution, and frame rate from the input video
         bitrate, resolution, frame_rate, _, _ = get_video_info(input_video)
 
+        # Step 1: Calculate scene complexity metrics
+        logger.info("Calculating scene complexity metrics...")
+        (
+            advanced_motion_complexity,
+            dct_complexity,
+            temporal_dct_complexity,
+            histogram_complexity,
+            edge_detection_complexity,
+            orb_feature_complexity,
+            color_histogram_complexity
+        ) = calculate_average_scene_complexity(
+            video_path=input_video,
+            resize_width=resize_width,
+            resize_height=resize_height,
+            frame_interval=frame_interval
+        )
+
+        # Step 2: Normalize the complexity metrics
+        logger.info("Normalizing scene complexity metrics...")
+        normalized_metrics, overall_complexity = compute_and_normalize_metrics(
+            advanced_motion_complexity=advanced_motion_complexity,
+            dct_complexity=dct_complexity,
+            temporal_dct_complexity=temporal_dct_complexity,
+            histogram_complexity=histogram_complexity,
+            edge_detection_complexity=edge_detection_complexity,
+            orb_feature_complexity=orb_feature_complexity,
+            color_histogram_complexity=color_histogram_complexity,
+            resize_width=resize_width,
+            resize_height=resize_height
+        )
+
+        # Log the final complexity score
+        logger.info(f"Overall Scene Complexity (Weighted Average): {overall_complexity:.4f}")
 
         # Step 3: Extract actual metrics from logs generated by FFmpeg (PSNR, SSIM, VMAF)
-        logger.info("Extracting actual metrics from FFmpeg logs...")
+        logger.info("Extracting PSNR, SSIM, and VMAF metrics from FFmpeg logs...")
         actual_metrics = extract_metrics_from_logs(
             psnr_log='psnr.log',
             ssim_log='ssim.log',
@@ -765,9 +825,29 @@ def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model
             frame_interval=frame_interval
         )
 
-        # Step 4: Log and save combined metrics
-        logger.info(f"Combined metrics extracted: {actual_metrics}")
-        update_csv(actual_metrics, csv_file='video_quality_data.csv')
+        # Step 4: Combine complexity metrics and video quality metrics
+        logger.info("Combining complexity and quality metrics...")
+        combined_metrics = {
+            'Scene Complexity': overall_complexity,
+            'Normalized Advanced Motion Complexity': normalized_metrics['Advanced Motion Complexity'],
+            'Normalized DCT Complexity': normalized_metrics['DCT Complexity'],
+            'Normalized Temporal DCT Complexity': normalized_metrics['Temporal DCT Complexity'],
+            'Normalized Histogram Complexity': normalized_metrics['Histogram Complexity'],
+            'Normalized Edge Detection Complexity': normalized_metrics['Edge Detection Complexity'],
+            'Normalized ORB Feature Complexity': normalized_metrics['ORB Feature Complexity'],
+            'Normalized Color Histogram Complexity': normalized_metrics['Color Histogram Complexity'],
+            'PSNR': actual_metrics['PSNR'],
+            'SSIM': actual_metrics['SSIM'],
+            'VMAF': actual_metrics['VMAF'],
+            'Bitrate (kbps)': bitrate,
+            'Resolution (px)': resolution,
+            'Frame Rate (fps)': frame_rate,
+            'CRF': crf
+        }
+
+        # Step 5: Log and save combined metrics
+        logger.info(f"Combined metrics: {combined_metrics}")
+        update_csv(combined_metrics, csv_file='video_quality_data.csv')
 
     except subprocess.CalledProcessError as e:
         logger.error(f"FFmpeg process failed: {e}")
