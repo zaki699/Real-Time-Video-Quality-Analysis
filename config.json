@@ -3,7 +3,5 @@
     "vmaf_model_path": null,
     "resize_width": 64,
     "resize_height": 64,
-    "frame_interval": 10,
-    "smoothing_factor": 0.8,
-    "min_frames_for_parallel": 50
+    "frame_interval": 10
 }
