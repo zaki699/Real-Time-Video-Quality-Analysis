@@ -96,23 +96,108 @@ Logs are stored in video_processing.log, providing details of the processing ste
 
 This project is licensed under the MIT License. See the LICENSE file for details.
 
-### 2. Train Model
-To build the SSIM, VMAF, and PSNR models based on the dataset:
+
+# Video Encoding Quality Prediction Models
+
+This project aims to predict video quality metrics such as **SSIM**, **PSNR** and **VMAF**  based on video complexity features, bitrate, resolution, frame rate, and other encoding settings. In **VBR** (Variable Bitrate) mode, the project also predicts the **bitrate** of the video.
+
+## Features
+
+The dataset includes the following metrics and features:
+
+- **Advanced Motion Complexity**
+- **DCT Complexity**
+- **Temporal DCT Complexity**
+- **Histogram Complexity**
+- **Edge Detection Complexity**
+- **ORB Feature Complexity**
+- **Color Histogram Complexity**
+- **Bitrate (kbps)** (for VBR encoding mode only)
+- **Resolution (px)**
+- **Frame Rate (fps)**
+- **CRF (Constant Rate Factor)**
+- **SSIM** (Structural Similarity Index)
+- **PSNR** (Peak Signal-to-Noise Ratio)
+- **VMAF** (Video Multi-Method Assessment Fusion)
+- **average_framerate**
+- **min_framerate**
+- **max_framerate**
+- **smoothed_frame_rate_variation**
+
+## Models
+
+The project uses the following ensemble machine learning models to predict video quality metrics:
+
+1. **Random Forest Regressor**
+2. **Gradient Boosting Regressor**
+3. **XGBoost Regressor**
+4. **LightGBM Regressor**
+5. **Linear Regression** as the final meta-learner in the stacking model.
+
+### Bitrate Prediction
+
+In **VBR** (Variable Bitrate) mode, the project also predicts **bitrate** based on the same set of features. **Bitrate prediction is skipped in CBR (Constant Bitrate) mode.**
+
+## Requirements
+
+The following Python libraries are required for this project:
+
+- `pandas`
+- `numpy`
+- `scikit-learn`
+- `xgboost`
+- `lightgbm`
+- `logging`
+- `tqdm`
+
+You can install the dependencies using the following command:
 
 ```bash
-python training_model.py --input_csv /path/to/dataset.csv --output_model /path/to/sav
+pip install pandas numpy scikit-learn xgboost lightgbm tqdm
 ```
 
+## Usage
 
-### Key Features
-- Frame Interval: Adjust the frame interval to balance computational efficiency and accuracy (Default: every 10 frames).
-- Dnamic Aspect Ratio Handling: The script automatically supports various aspect ratios (e.g., 4:3, 16:9), ensuring accuracy in the complexity metrics.
-- Optimal Resolution: The script helps you find the best resolution that provides acceptable accuracy while reducing computation time.
-- Encodes a video using FFmpeg with a specific CRF value.
-- Extracts actual video quality metrics (PSNR, SSIM, VMAF) from FFmpeg logs.
-- Predicts video quality metrics (PSNR, SSIM, VMAF) using pre-trained machine learning models.
-- Saves both predicted and actual metrics to a CSV file.
-- Displays a progress bar during video encoding and processing.
+1. Load the dataset
 
-### Contributions
-Feel free to contribute to this repository by submitting a pull request or opening an issue!
+Ensure that your dataset is saved as video_quality_data.csv. It should include the features listed above.
+
+2. Modify the Encoding Mode
+
+You can set the encoding mode to either 'VBR' (Variable Bitrate) or 'CBR' (Constant Bitrate). This will control whether the bitrate prediction model is built or skipped.
+
+```Python
+encoding_mode = 'VBR'  # or 'CBR'
+```
+
+3. Running the Code
+
+Once the dataset is ready, and the encoding mode is set, you can run the script to train the models and make predictions for SSIM, PSNR, VMAF, and bitrate (if VBR).
+
+4. Training and Predictions
+
+The models are trained using the features in the dataset. The predictions for the test data are made for SSIM, PSNR, VMAF, and bitrate (if VBR). The Mean Squared Error (MSE) for each metric is printed for evaluation.
+
+5. Evaluating Model Performance
+
+The following metrics are used for evaluation:
+
+	- Mean Squared Error (MSE): The lower the MSE, the better the model.
+
+Example Output
+
+After running the script, you should see the following output for MSE:
+
+```bash
+SSIM MSE: 0.0015
+PSNR MSE: 0.0032
+VMAF MSE: 0.0021
+Bitrate MSE (VBR mode): 100.5  # Only shown in VBR mode
+```
+
+Future Improvements
+
+	- Advanced Feature Engineering: Further improvements can be made by exploring feature interaction and generating additional derived features.
+	- Hyperparameter Tuning: Use Grid Search or Random Search to fine-tune the model hyperparameters.
+	- Cross-Validation: Implement k-fold cross-validation to ensure the model is not overfitting to the training data.
+	- Model Interpretability: Consider using techniques like SHAP or LIME for better interpretability of the models.
