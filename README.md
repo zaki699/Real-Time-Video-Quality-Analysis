@@ -46,16 +46,6 @@ To build the SSIM, VMAF, and PSNR models based on the dataset:
 python training_model.py --input_csv /path/to/dataset.csv --output_model /path/to/sav
 ```
 
-### 3. Analyze Video
-To analyze a video using SSIM, PSNR, and VMAF metrics, and dynamically adjust the encoding settings:
-```bash
-python video_analysis.py --input_video /path/to/video --crf 23 --output_video /path/to/output/video
-```
-
-You can also configure the VMAF model path and other parameters:
-```bash
-python video_analysis.py --input_video /path/to/video --crf 23 --output_video /path/to/output/video --vmaf_model_path /path/to/vmaf/model
-```
 
 ### Key Features
 - Frame Interval: Adjust the frame interval to balance computational efficiency and accuracy (Default: every 10 frames).
