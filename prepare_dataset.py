@@ -95,6 +95,7 @@ def calculate_advanced_motion_complexity(video_path, frame_interval=10, min_fram
 
 # SIFT and ORB are advanced feature detectors used to identify key points and descriptors in images.
 #  These can be used to evaluate frame complexity by detecting and counting the number of keypoints in each frame. 
+# ORB Feature Complexity calculation with smoothing
 def calculate_orb_feature_complexity(video_path, frame_interval=10, resize_width=64, resize_height=64):
     cap = cv2.VideoCapture(video_path)
     orb = cv2.ORB_create()  # Create an ORB detector
@@ -123,7 +124,10 @@ def calculate_orb_feature_complexity(video_path, frame_interval=10, resize_width
     finally:
         cap.release()
 
-    return np.mean(total_keypoints) if total_keypoints else 0.0
+    # Apply smoothing to ORB keypoint complexity
+    smoothed_keypoints = smooth_data(total_keypoints)
+
+    return np.mean(smoothed_keypoints) if smoothed_keypoints.size > 0 else 0.0
     
 # A color histogram represents the distribution of color intensities in an image.
 #  You can analyze the distribution of colors across the frames to gauge the complexity
@@ -164,7 +168,10 @@ def calculate_color_histogram_complexity(video_path, frame_interval=10, resize_w
     finally:
         cap.release()
 
-    return np.mean(total_histogram_complexity) if total_histogram_complexity else 0.0
+    # Apply smoothing to color histogram complexity
+    smoothed_histogram = smooth_data(total_histogram_complexity)
+
+    return np.mean(smoothed_histogram) if smoothed_histogram.size > 0 else 0.0
 
 # DCT complexity with parallel frame processing
 def calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval=10, min_frames_for_parallel=50):
