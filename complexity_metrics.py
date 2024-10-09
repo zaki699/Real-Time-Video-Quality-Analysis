@@ -11,6 +11,44 @@ from itertools import tee
 
 logger = logging.getLogger(__name__)
 
+# Extract frame timestamps from the video
+def extract_frame_timestamps(video_path, frame_interval=10):
+    """
+    Extracts frame timestamps from the video file.
+
+    Parameters:
+        video_path (str): The path to the video file.
+        frame_interval (int): The interval at which frames should be processed.
+
+    Returns:
+        list: A list of timestamps for the frames in milliseconds.
+    """
+    cap = cv2.VideoCapture(video_path)
+    frame_count = 0
+    frame_timestamps = []
+
+    try:
+        if not cap.isOpened():
+            logger.error(f"Error opening video file: {video_path}")
+            return []
+
+        while cap.isOpened():
+            ret, _ = cap.read()
+            if not ret:
+                break
+
+            if frame_count % frame_interval == 0:
+                # Capture the timestamp for the current frame
+                timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                frame_timestamps.append(timestamp)
+
+            frame_count += 1
+
+    finally:
+        cap.release()
+
+    return frame_timestamps
+
 
 # Read frames from video with optional frame interval and return pairs of consecutive frames
 def read_frame_pairs(video_path, frame_interval=10):
@@ -100,6 +138,11 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     color_histogram_complexity = process_in_batches(frames, functools.partial(process_color_histogram_frame, resize_width=resize_width, resize_height=resize_height), num_workers, batch_size)
     smoothed_color_histogram_complexity = smooth_data(color_histogram_complexity, smoothing_factor)
 
+    # Calculate the frame rate variation using the timestamps from the frames
+    frame_timestamps = extract_frame_timestamps(video_path, frame_interval)
+    framerate_variation = process_in_batches(frame_timestamps, process_frame_interval_for_parallel, num_workers, batch_size)
+    smoothed_framerate_variation = smooth_data(framerate_variation, smoothing_factor)
+
     # Logging smoothed values
     logger.info(f"Smoothed Advanced Motion Complexity: {np.mean(smoothed_motion_complexity):.2f}")
     logger.info(f"Smoothed DCT Complexity: {np.mean(smoothed_dct_complexity):.2f}")
@@ -108,6 +151,7 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     logger.info(f"Smoothed Edge Detection Complexity: {np.mean(smoothed_edge_detection_complexity):.2f}")
     logger.info(f"Smoothed ORB Feature Complexity: {np.mean(smoothed_orb_feature_complexity):.2f}")
     logger.info(f"Smoothed Color Histogram Complexity: {np.mean(smoothed_color_histogram_complexity):.2f}")
+    logger.info(f"Smoothed Frame Rate Variation: {np.mean(smoothed_framerate_variation):.2f}")
 
     return (
         np.mean(smoothed_motion_complexity),
@@ -116,9 +160,67 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         np.mean(smoothed_histogram_complexity),
         np.mean(smoothed_edge_detection_complexity),
         np.mean(smoothed_orb_feature_complexity),
-        np.mean(smoothed_color_histogram_complexity)
+        np.mean(smoothed_color_histogram_complexity),
+        np.mean(smoothed_framerate_variation)
     )
 
+# Helper function to calculate frame rate between two timestamps
+def process_frame_interval_for_parallel(prev_timestamp, curr_timestamp):
+    """
+    A helper function to calculate the frame rate from two timestamps.
+
+    Parameters:
+        prev_timestamp (float): The timestamp of the previous frame in milliseconds.
+        curr_timestamp (float): The timestamp of the current frame in milliseconds.
+
+    Returns:
+        float: The frame rate between two frames.
+    """
+    frame_interval = (curr_timestamp - prev_timestamp) / 1000.0  # Convert ms to s
+    if frame_interval > 0:
+        return 1.0 / frame_interval  # Frame rate
+    return 0.0  # Return 0 if the frame interval is invalid
+
+# Main function to calculate frame rate variation
+def calculate_framerate_variation(frame_timestamps, smoothing_factor=0.8):
+    """
+    Calculate frame rate variation using timestamps from frames.
+
+    Parameters:
+        frame_timestamps (list): List of timestamps in milliseconds for each frame.
+        smoothing_factor (float): Smoothing factor for exponential smoothing.
+
+    Returns:
+        dict: Dictionary containing smoothed frame rate statistics.
+    """
+    frame_rates = []
+    
+    # Calculate frame rates using consecutive frame timestamps
+    for i in range(1, len(frame_timestamps)):
+        frame_rate = process_frame_interval_for_parallel(frame_timestamps[i - 1], frame_timestamps[i])
+        if frame_rate > 0:
+            frame_rates.append(frame_rate)
+    
+    if len(frame_rates) > 0:
+        # Apply exponential smoothing to the frame rates
+        frame_rate_series = pd.Series(frame_rates)
+        smoothed_frame_rates = frame_rate_series.ewm(alpha=smoothing_factor).mean().to_list()
+
+        # Compute statistics for the smoothed frame rates
+        average_framerate = np.mean(smoothed_frame_rates)
+        min_framerate = np.min(smoothed_frame_rates)
+        max_framerate = np.max(smoothed_frame_rates)
+
+        framerate_variation = {
+            'average_framerate': average_framerate,
+            'min_framerate': min_framerate,
+            'max_framerate': max_framerate,
+            'smoothed_frame_rate_variation': smoothed_frame_rates
+        }
+        return framerate_variation
+    else:
+        return None
+    
 # Motion complexity using optical flow (updated for frame pairs)
 def process_frame_complexity(frame_pair):
     frame, prev_frame = frame_pair
