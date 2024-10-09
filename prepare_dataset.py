@@ -19,158 +19,6 @@ from tqdm import tqdm  # Progress bar
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define a function to load models safely
-def load_model_safe(model_path, model_name="model"):
-    """
-    Safely load a machine learning model with a progress bar.
-    
-    Args:
-        model_path (str): Path to the model file.
-        model_name (str): Name of the model for logging purposes.
-    
-    Returns:
-        Loaded model or None if the model does not exist.
-    """
-    progress_bar = tqdm(total=1, desc=f"Loading {model_name}", unit="step")
-    if os.path.isfile(model_path):
-        progress_bar.update(1)
-        progress_bar.close()
-        return joblib.load(model_path)
-    else:
-        logger.warning(f"{model_name} not found at {model_path}. Skipping predictions for {model_name}.")
-        progress_bar.close()
-        return None
-    
-# Load the trained models
-xgb_ssim_model = load_model_safe('xgb_ssim_model.pkl', 'SSIM Model')
-xgb_psnr_model = load_model_safe('xgb_psnr_model.pkl', 'PSNR Model')
-xgb_vmaf_model = load_model_safe('xgb_vmaf_model.pkl', 'VMAF Model')
-
-def extract_motion_complexity(video_path, frame_interval=10):
-    cap = cv2.VideoCapture(video_path)
-    total_motion = []
-    prev_frame = None
-    frame_count = 0
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        frame_count += 1
-        if frame_count % frame_interval != 0:
-            continue
-
-        if prev_frame is not None:
-            motion_complexity = process_frame_complexity(frame, prev_frame)
-            total_motion.append(motion_complexity)
-
-        prev_frame = frame
-    
-    cap.release()
-    return np.mean(total_motion) if total_motion else 0.0
-
-def extract_histogram_complexity(video_path, resize_width, resize_height, frame_interval=10):
-    return calculate_histogram_complexity(video_path, resize_width, resize_height, frame_interval)
-
-def extract_temporal_dct_complexity(video_path, resize_width, resize_height, frame_interval=10):
-    return calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval)
-
-
-
-def predict_video_quality(video_path, crf, resize_width, resize_height, frame_interval=10):
-    """
-    Predict video quality metrics (SSIM, PSNR, VMAF) using pre-trained models.
-    
-    Args:
-        video_path (str): Path to the video file.
-        crf (int): CRF value used for encoding.
-        resize_width (int): Width for resizing frames.
-        resize_height (int): Height for resizing frames.
-        frame_interval (int): Interval between frames for processing.
-    
-    Returns:
-        dict: Predicted SSIM, PSNR, and VMAF values.
-    """
-    features = extract_real_time_features(video_path, crf, resize_width, resize_height, frame_interval)
-
-    progress_bar = tqdm(total=3, desc="Predicting Quality Metrics", unit="metric")
-
-    predicted_ssim = None
-    predicted_psnr = None
-    predicted_vmaf = None
-
-    if xgb_ssim_model:
-        predicted_ssim = xgb_ssim_model.predict(features)[0]
-        logger.info(f"Predicted SSIM: {predicted_ssim:.2f}")
-        progress_bar.update(1)
-    else:
-        logger.warning("SSIM model is missing. Skipping SSIM prediction.")
-
-    if xgb_psnr_model:
-        predicted_psnr = xgb_psnr_model.predict(features)[0]
-        logger.info(f"Predicted PSNR: {predicted_psnr:.2f}")
-        progress_bar.update(1)
-    else:
-        logger.warning("PSNR model is missing. Skipping PSNR prediction.")
-
-    if xgb_vmaf_model:
-        predicted_vmaf = xgb_vmaf_model.predict(features)[0]
-        logger.info(f"Predicted VMAF: {predicted_vmaf:.2f}")
-        progress_bar.update(1)
-    else:
-        logger.warning("VMAF model is missing. Skipping VMAF prediction.")
-
-    progress_bar.close()
-
-    return {
-        'SSIM': predicted_ssim,
-        'PSNR': predicted_psnr,
-        'VMAF': predicted_vmaf
-    }
-
-def process_and_predict(video_path, crf, resize_width, resize_height, frame_interval=10):
-    # Perform the feature extraction and predict quality metrics
-    predicted_ssim, predicted_psnr, predicted_vmaf = predict_video_quality(video_path, crf, resize_width, resize_height, frame_interval)
-    
-    logger.info(f"Predicted SSIM: {predicted_ssim:.2f}")
-    logger.info(f"Predicted PSNR: {predicted_psnr:.2f}")
-    logger.info(f"Predicted VMAF: {predicted_vmaf:.2f}")
-
-    return {
-        'SSIM': predicted_ssim,
-        'PSNR': predicted_psnr,
-        'VMAF': predicted_vmaf
-    }
-
-def predict_video_quality(video_path, crf, resize_width, resize_height, frame_interval=10):
-    features = extract_real_time_features(video_path, crf, resize_width, resize_height, frame_interval)
-
-    # Set default values if models are missing
-    predicted_ssim = 0.0  # Default SSIM value
-    predicted_psnr = 30.0  # Default PSNR value
-    predicted_vmaf = 75.0  # Default VMAF value
-
-    if xgb_ssim_model:
-        predicted_ssim = xgb_ssim_model.predict(features)[0]
-    else:
-        logger.warning("SSIM model is missing. Using default SSIM value.")
-
-    if xgb_psnr_model:
-        predicted_psnr = xgb_psnr_model.predict(features)[0]
-    else:
-        logger.warning("PSNR model is missing. Using default PSNR value.")
-
-    if xgb_vmaf_model:
-        predicted_vmaf = xgb_vmaf_model.predict(features)[0]
-    else:
-        logger.warning("VMAF model is missing. Using default VMAF value.")
-
-    return {
-        'SSIM': predicted_ssim,
-        'PSNR': predicted_psnr,
-        'VMAF': predicted_vmaf
-    }
 
 # Smoothing function for motion complexity and other metrics
 def smooth_data(data, smoothing_factor=0.8):
@@ -545,73 +393,6 @@ def calculate_histogram_complexity_frame(frame, resize_width, resize_height):
 
     return entropy
 
-def extract_real_time_features(video_path, crf, resize_width, resize_height, frame_interval=10):
-    """
-    Extract real-time features from the video with progress feedback.
-    
-    Args:
-        video_path (str): Path to the video file.
-        crf (int): CRF value used for encoding.
-        resize_width (int): Width for resizing frames.
-        resize_height (int): Height for resizing frames.
-        frame_interval (int): Interval between frames for processing.
-    
-    Returns:
-        np.array: Extracted feature vector.
-    """
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    total_processed = total_frames // frame_interval
-    
-    # Initialize progress bar
-    progress_bar = tqdm(total=total_processed, desc="Extracting Features", unit="frame")
-
-    motion_complexity = []
-    temporal_dct_complexity = []
-    histogram_complexity = []
-
-    prev_frame = None
-    prev_frame_dct = None
-    frame_count = 0
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        frame_count += 1
-        if frame_count % frame_interval != 0:
-            continue
-
-        # Process the current frame for motion complexity
-        if prev_frame is not None:
-            motion_complexity.append(process_frame_complexity(frame, prev_frame))
-        prev_frame = frame
-
-        # Process the current frame for temporal DCT complexity
-        temporal_dct_diff = calculate_temporal_dct_frame(frame, resize_width, resize_height, prev_frame_dct)
-        temporal_dct_complexity.append(temporal_dct_diff)
-        prev_frame_dct = cv2.dct(np.float32(cv2.cvtColor(cv2.resize(frame, (resize_width, resize_height)), cv2.COLOR_BGR2GRAY)))
-
-        # Process the current frame for histogram complexity
-        histogram_entropy = calculate_histogram_complexity_frame(frame, resize_width, resize_height)
-        histogram_complexity.append(histogram_entropy)
-
-        # Update the progress bar
-        progress_bar.update(1)
-
-    cap.release()
-    progress_bar.close()
-
-    # Calculate the average of extracted features
-    avg_motion_complexity = np.mean(motion_complexity) if motion_complexity else 0.0
-    avg_temporal_dct_complexity = np.mean(temporal_dct_complexity) if temporal_dct_complexity else 0.0
-    avg_histogram_complexity = np.mean(histogram_complexity) if histogram_complexity else 0.0
-
-    # Combine the features into one array
-    features = np.array([[avg_motion_complexity, avg_temporal_dct_complexity, avg_histogram_complexity, crf]])
-
-    return features
 
 # Function to run FFmpeg to compute PSNR, SSIM, and VMAF
 def run_ffmpeg_metrics(reference_video, distorted_video, vmaf_model_path=None):
@@ -881,10 +662,6 @@ def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model
         # Extract bitrate, resolution, and frame rate from the input video
         bitrate, resolution, frame_rate, _, _ = get_video_info(input_video)
 
-        # Step 2: Call predict_video_quality after encoding the video
-        logger.info(f"Extracting features and predicting quality metrics for {encoded_video}...")
-        predicted_metrics = predict_video_quality(encoded_video, crf, resize_width, resize_height, frame_interval)
-
 
         # Step 3: Extract actual metrics from logs generated by FFmpeg (PSNR, SSIM, VMAF)
         logger.info("Extracting actual metrics from FFmpeg logs...")
@@ -902,23 +679,9 @@ def process_video_and_extract_metrics(input_video, crf, output_video, vmaf_model
             frame_interval=frame_interval
         )
 
-        # Combine predicted and actual metrics
-        combined_metrics = {
-            'Predicted SSIM': predicted_metrics['SSIM'],
-            'Predicted PSNR': predicted_metrics['PSNR'],
-            'Predicted VMAF': predicted_metrics['VMAF'],
-            'Actual SSIM': actual_metrics['SSIM'],
-            'Actual PSNR': actual_metrics['PSNR'],
-            'Actual VMAF': actual_metrics['VMAF'],
-            'Bitrate (kbps)': bitrate,
-            'Resolution (px)': resolution,
-            'Frame Rate (fps)': frame_rate,
-            'CRF': crf
-        }
-
         # Step 4: Log and save combined metrics
-        logger.info(f"Combined metrics extracted: {combined_metrics}")
-        update_csv(combined_metrics, csv_file='video_quality_data.csv')
+        logger.info(f"Combined metrics extracted: {actual_metrics}")
+        update_csv(actual_metrics, csv_file='video_quality_data.csv')
 
     except subprocess.CalledProcessError as e:
         logger.error(f"FFmpeg process failed: {e}")
