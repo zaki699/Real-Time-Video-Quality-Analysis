@@ -93,6 +93,79 @@ def calculate_advanced_motion_complexity(video_path, frame_interval=10, min_fram
     else:
         return 0.0
 
+# SIFT and ORB are advanced feature detectors used to identify key points and descriptors in images.
+#  These can be used to evaluate frame complexity by detecting and counting the number of keypoints in each frame. 
+def calculate_orb_feature_complexity(video_path, frame_interval=10, resize_width=64, resize_height=64):
+    cap = cv2.VideoCapture(video_path)
+    orb = cv2.ORB_create()  # Create an ORB detector
+    total_keypoints = []
+    frame_count = 0
+
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
+                continue
+
+            # Resize frame for faster processing
+            resized_frame = cv2.resize(frame, (resize_width, resize_height))
+            gray_frame = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
+
+            # Detect ORB keypoints
+            keypoints, descriptors = orb.detectAndCompute(gray_frame, None)
+
+            # Complexity can be measured by the number of keypoints detected
+            total_keypoints.append(len(keypoints))
+
+    finally:
+        cap.release()
+
+    return np.mean(total_keypoints) if total_keypoints else 0.0
+    
+# A color histogram represents the distribution of color intensities in an image.
+#  You can analyze the distribution of colors across the frames to gauge the complexity
+#  of scenes with varying color intensity and diversity.
+def calculate_color_histogram_complexity(video_path, frame_interval=10, resize_width=64, resize_height=64):
+    cap = cv2.VideoCapture(video_path)
+    total_histogram_complexity = []
+    frame_count = 0
+
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_count += 1
+            if frame_count % frame_interval != 0:
+                continue
+
+            # Resize frame for faster processing
+            resized_frame = cv2.resize(frame, (resize_width, resize_height))
+            # Calculate histogram for each channel (B, G, R)
+            hist_b = cv2.calcHist([resized_frame], [0], None, [256], [0, 256])
+            hist_g = cv2.calcHist([resized_frame], [1], None, [256], [0, 256])
+            hist_r = cv2.calcHist([resized_frame], [2], None, [256], [0, 256])
+
+            # Normalize histograms
+            hist_b /= hist_b.sum()
+            hist_g /= hist_g.sum()
+            hist_r /= hist_r.sum()
+
+            # Calculate entropy as complexity measure
+            hist_entropy = - (np.sum(hist_b * np.log2(hist_b + 1e-8)) + 
+                              np.sum(hist_g * np.log2(hist_g + 1e-8)) + 
+                              np.sum(hist_r * np.log2(hist_r + 1e-8)))
+
+            total_histogram_complexity.append(hist_entropy)
+
+    finally:
+        cap.release()
+
+    return np.mean(total_histogram_complexity) if total_histogram_complexity else 0.0
+
 # DCT complexity with parallel frame processing
 def calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval=10, min_frames_for_parallel=50):
     cap = cv2.VideoCapture(video_path)
@@ -276,20 +349,28 @@ def min_max_normalize(value, min_val, max_val):
 def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10):
     logger.info("Calculating advanced motion complexity...")
     advanced_motion_complexity = calculate_advanced_motion_complexity(video_path, frame_interval)
+    
     logger.info("Calculating DCT scene complexity...")
     dct_complexity = calculate_dct_scene_complexity(video_path, resize_width, resize_height, frame_interval)
+    
     logger.info("Calculating temporal DCT complexity...")
     temporal_dct_complexity = calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval)
+    
     logger.info("Calculating histogram complexity...")
-    histogram_complexity = calculate_histogram_complexity(video_path, resize_width, resize_height, frame_interval)
+    histogram_complexity = calculate_color_histogram_complexity(video_path, frame_interval, resize_width, resize_height)
+    
     logger.info("Calculating edge detection complexity...")
     edge_detection_complexity = calculate_edge_detection_complexity(video_path, resize_width, resize_height, frame_interval)
+    
+    logger.info("Calculating ORB feature complexity...")
+    orb_feature_complexity = calculate_orb_feature_complexity(video_path, frame_interval, resize_width, resize_height)
 
     logger.info(f"Advanced Motion Complexity: {advanced_motion_complexity:.2f}")
     logger.info(f"DCT Complexity: {dct_complexity:.2f}")
     logger.info(f"Temporal DCT Complexity: {temporal_dct_complexity:.2f}")
     logger.info(f"Histogram Complexity: {histogram_complexity:.2f}")
     logger.info(f"Edge Detection Complexity: {edge_detection_complexity:.2f}")
+    logger.info(f"ORB Feature Complexity: {orb_feature_complexity:.2f}")
 
     # Define min and max values for normalization (these values should be based on your dataset)
     metric_min_values = {
@@ -297,7 +378,8 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         'DCT Complexity': 1e6,
         'Temporal DCT Complexity': 0.0,
         'Histogram Complexity': 0.0,
-        'Edge Detection Complexity': 0.0
+        'Edge Detection Complexity': 0.0,
+        'ORB Feature Complexity': 0.0
     }
 
     metric_max_values = {
@@ -305,7 +387,8 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         'DCT Complexity': 5e7,
         'Temporal DCT Complexity': 1e7,
         'Histogram Complexity': 8.0,
-        'Edge Detection Complexity': resize_width * resize_height  # Maximum possible edges
+        'Edge Detection Complexity': resize_width * resize_height,  # Maximum possible edges
+        'ORB Feature Complexity': 5000  # Adjust this value based on expected keypoints
     }
 
     # Normalize metrics
@@ -320,14 +403,17 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
         histogram_complexity, metric_min_values['Histogram Complexity'], metric_max_values['Histogram Complexity'])
     normalized_metrics['Edge Detection Complexity'] = min_max_normalize(
         edge_detection_complexity, metric_min_values['Edge Detection Complexity'], metric_max_values['Edge Detection Complexity'])
+    normalized_metrics['ORB Feature Complexity'] = min_max_normalize(
+        orb_feature_complexity, metric_min_values['ORB Feature Complexity'], metric_max_values['ORB Feature Complexity'])
 
     # Define weights for each metric (adjust these weights as needed)
     weights = {
-        'Advanced Motion Complexity': 0.25,
-        'DCT Complexity': 0.25,
-        'Temporal DCT Complexity': 0.25,
+        'Advanced Motion Complexity': 0.20,
+        'DCT Complexity': 0.20,
+        'Temporal DCT Complexity': 0.20,
         'Histogram Complexity': 0.15,
-        'Edge Detection Complexity': 0.10
+        'Edge Detection Complexity': 0.10,
+        'ORB Feature Complexity': 0.15
     }
 
     # Calculate weighted average
