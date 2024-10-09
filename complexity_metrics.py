@@ -39,29 +39,6 @@ def read_frame_pairs(video_path, frame_interval=10):
 
     return frames
 
-# Read frames from video with optional frame interval
-def read_frames(video_path, frame_interval=10):
-    cap = cv2.VideoCapture(video_path)
-    frames = []
-    frame_count = 0
-
-    try:
-        if not cap.isOpened():
-            logger.error(f"Error opening video file: {video_path}")
-            return []
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_count += 1
-            if frame_count % frame_interval == 0:
-                frames.append(frame)
-
-    finally:
-        cap.release()
-
-    return frames
 
 # Exponential smoothing using pandas
 def smooth_data(data, alpha=0.8):
@@ -200,7 +177,7 @@ def process_edge_frame(frame, resize_width, resize_height):
 
 # Temporal DCT Complexity Calculation
 def calculate_temporal_dct(video_path, resize_width, resize_height, frame_interval=10, smoothing_factor=0.8):
-    frames = read_frames(video_path, frame_interval)
+    frames = read_frame_pairs(video_path, frame_interval)
     prev_gray_frame = None
     temporal_dct_energies = []
 
