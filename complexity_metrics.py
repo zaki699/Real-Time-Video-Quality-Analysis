@@ -22,11 +22,18 @@ except ImportError:
     logger.info("CuPy is not available. Using CPU processing.")
 
 # Helper function to validate video path
-def validate_video_path(video_path):
-    """Check if the video path is valid and ends with a supported extension."""
-    if not isinstance(video_path, str) or not video_path.endswith(('.mp4', '.avi', '.mov')):
-        raise ValueError("Invalid video path. Please provide a valid video file.")
+def validate_video_path(input_path):
+    """Check if the input is a valid video or frame file."""
+    if not isinstance(input_path, str):
+        raise ValueError("Invalid input path. Please provide a valid file path.")
 
+    if input_path.endswith(('.mp4', '.avi', '.mov')):
+        return 'video'
+    elif input_path.endswith(('.jpg', '.png')):
+        return 'frame'
+    else:
+        raise ValueError("Unsupported file type. Please provide a video or frame file.")
+    
 # Extract frame timestamps from the video
 def extract_frame_timestamps(video_path, frame_interval=10):
     """
@@ -139,6 +146,101 @@ def process_in_batches(frames, process_func, num_workers, batch_size=100, **kwar
             process_with_args = functools.partial(process_func, **kwargs)
             results.extend(executor.map(process_with_args, batch))
     return results
+
+def process_frame_interval_for_parallel(timestamps):
+    """
+    Calculate the frame rate interval between two consecutive timestamps.
+
+    Parameters:
+        timestamps (tuple): A tuple containing (prev_timestamp, curr_timestamp).
+
+    Returns:
+        float: The frame rate between two timestamps.
+    """
+    prev_timestamp, curr_timestamp = timestamps
+    frame_interval = (curr_timestamp - prev_timestamp) / 1000.0  # Convert milliseconds to seconds
+
+    if frame_interval > 0:
+        return 1.0 / frame_interval  # Frame rate (in fps)
+    return 0.0  # Return 0 if frame interval is invalid
+
+def normalize(value, min_value, max_value):
+    """Normalize a value to a 0-1 range based on provided min and max."""
+    return (value - min_value) / (max_value - min_value) if max_value > min_value else 0
+
+def calculate_scene_complexity_score(encoded_video, resize_width, resize_height, frame_interval=10, smoothing_factor=0.8, num_workers=None, batch_size=100):
+    """
+    Calculate the scene complexity score by first calculating various complexity metrics and 
+    then normalizing them and computing a weighted score.
+    """
+
+    # Call calculate_average_scene_complexity to get the complexity metrics
+    (advanced_motion_complexity,
+     dct_complexity,
+     histogram_complexity,
+     edge_detection_complexity,
+     orb_feature_complexity,
+     color_histogram_complexity,
+     temporal_dct_complexity,
+     smoothed_framerate_variation) = calculate_average_scene_complexity(
+         encoded_video,
+         resize_width,
+         resize_height,
+         frame_interval=frame_interval,
+         smoothing_factor=smoothing_factor,
+         num_workers=None,  # Default CPU workers
+         batch_size=batch_size,
+     )
+    
+  
+    # Define the min and max values for normalization (based on observed data ranges)
+    min_max_values = {
+        'advanced_motion_complexity': (0.0, 10.0),
+        'dct_complexity': (1e6, 5e7),
+        'temporal_dct_complexity': (0.0, 1e7),
+        'histogram_complexity': (0.0, 8.0),
+        'edge_detection_complexity': (0.0, 1.0),
+        'orb_feature_complexity': (0.0, 5000),
+        'color_histogram_complexity': (0.0, 8.0),
+        'smoothed_framerate_variation': (0.0, 2.0)
+    }
+
+    # Normalize each metric
+    advanced_motion_norm = normalize(advanced_motion_complexity, *min_max_values['advanced_motion_complexity'])
+    dct_complexity_norm = normalize(dct_complexity, *min_max_values['dct_complexity'])
+    temporal_dct_complexity_norm = normalize(temporal_dct_complexity, *min_max_values['temporal_dct_complexity'])
+    histogram_complexity_norm = normalize(histogram_complexity, *min_max_values['histogram_complexity'])
+    edge_detection_complexity_norm = normalize(edge_detection_complexity, *min_max_values['edge_detection_complexity'])
+    orb_feature_complexity_norm = normalize(orb_feature_complexity, *min_max_values['orb_feature_complexity'])
+    color_histogram_complexity_norm = normalize(color_histogram_complexity, *min_max_values['color_histogram_complexity'])
+    smoothed_framerate_variation_norm = normalize(smoothed_framerate_variation, *min_max_values['smoothed_framerate_variation'])
+
+    # Assign weights to each metric
+    weights = {
+        'advanced_motion_complexity': 0.25,
+        'dct_complexity': 0.15,
+        'temporal_dct_complexity': 0.15,
+        'histogram_complexity': 0.10,
+        'edge_detection_complexity': 0.10,
+        'orb_feature_complexity': 0.10,
+        'color_histogram_complexity': 0.10,
+        'smoothed_framerate_variation': 0.05
+    }
+
+    # Calculate the weighted sum of normalized metrics
+    scene_complexity_score = (
+        advanced_motion_norm * weights['advanced_motion_complexity'] +
+        dct_complexity_norm * weights['dct_complexity'] +
+        temporal_dct_complexity_norm * weights['temporal_dct_complexity'] +
+        histogram_complexity_norm * weights['histogram_complexity'] +
+        edge_detection_complexity_norm * weights['edge_detection_complexity'] +
+        orb_feature_complexity_norm * weights['orb_feature_complexity'] +
+        color_histogram_complexity_norm * weights['color_histogram_complexity'] +
+        smoothed_framerate_variation_norm * weights['smoothed_framerate_variation']
+    )
+
+    return scene_complexity_score
+
 
 # Calculate scene complexity using various metrics (DCT, ORB, etc.)
 def calculate_average_scene_complexity(video_path, resize_width, resize_height, frame_interval=10, smoothing_factor=0.8, num_workers=None, batch_size=100):
@@ -313,7 +415,6 @@ def process_histogram_frame(frame, resize_width, resize_height):
 
     return entropy
 
-# Color Histogram Complexity using GPU or CPU
 def process_color_histogram_frame(frame, resize_width, resize_height):
     """
     Calculate the color histogram complexity of a frame.
@@ -333,9 +434,19 @@ def process_color_histogram_frame(frame, resize_width, resize_height):
         hist_b = cv2.calcHist([resized_frame], [0], None, [256], [0, 256])
         hist_g = cv2.calcHist([resized_frame], [1], None, [256], [0, 256])
         hist_r = cv2.calcHist([resized_frame], [2], None, [256], [0, 256])
-        hist_b = cp.array(hist_b) / cp.sum(hist_b)
-        hist_g = cp.array(hist_g) / cp.sum(hist_g)
-        hist_r = cp.array(hist_r) / cp.sum(hist_r)
+        
+        # Avoid division by zero by checking sums
+        hist_b_sum = cp.sum(hist_b)
+        hist_g_sum = cp.sum(hist_g)
+        hist_r_sum = cp.sum(hist_r)
+        
+        if hist_b_sum == 0 or hist_g_sum == 0 or hist_r_sum == 0:
+            return float('nan')
+        
+        hist_b = cp.array(hist_b) / hist_b_sum
+        hist_g = cp.array(hist_g) / hist_g_sum
+        hist_r = cp.array(hist_r) / hist_r_sum
+        
         entropy = - (cp.sum(hist_b * cp.log2(hist_b + 1e-8)) +
                      cp.sum(hist_g * cp.log2(hist_g + 1e-8)) +
                      cp.sum(hist_r * cp.log2(hist_r + 1e-8)))
@@ -344,9 +455,19 @@ def process_color_histogram_frame(frame, resize_width, resize_height):
         hist_b = cv2.calcHist([resized_frame], [0], None, [256], [0, 256])
         hist_g = cv2.calcHist([resized_frame], [1], None, [256], [0, 256])
         hist_r = cv2.calcHist([resized_frame], [2], None, [256], [0, 256])
-        hist_b = hist_b / hist_b.sum()
-        hist_g = hist_g / hist_g.sum()
-        hist_r = hist_r / hist_r.sum()
+        
+        # Avoid division by zero by checking sums
+        hist_b_sum = hist_b.sum()
+        hist_g_sum = hist_g.sum()
+        hist_r_sum = hist_r.sum()
+        
+        if hist_b_sum == 0 or hist_g_sum == 0 or hist_r_sum == 0:
+            return float('nan')
+        
+        hist_b = hist_b / hist_b_sum
+        hist_g = hist_g / hist_g_sum
+        hist_r = hist_r / hist_r_sum
+        
         entropy = - (np.sum(hist_b * np.log2(hist_b + 1e-8)) +
                      np.sum(hist_g * np.log2(hist_g + 1e-8)) +
                      np.sum(hist_r * np.log2(hist_r + 1e-8)))
@@ -432,9 +553,28 @@ def process_temporal_dct_frame(prev_gray_frame, curr_gray_frame, resize_width, r
     Returns:
         float: The DCT difference between the two frames.
     """
+    # Resize frames to the desired resolution
     prev_gray_frame = cv2.resize(prev_gray_frame, (resize_width, resize_height))
     curr_gray_frame = cv2.resize(curr_gray_frame, (resize_width, resize_height))
 
     if use_gpu:
-        prev_frame_dct = cv2.dct(cp.float32(prev_gray_frame))
+        # Transfer frames to GPU using CuPy
+        prev_frame_gpu = cp.array(prev_gray_frame, dtype=cp.float32)
+        curr_frame_gpu = cp.array(curr_gray_frame, dtype=cp.float32)
+        
+        # Perform DCT on GPU (CuPy doesn't have a direct DCT, so we can use CuPy FFT as an alternative)
+        prev_frame_dct = cp.fft.fft2(prev_frame_gpu)
+        curr_frame_dct = cp.fft.fft2(curr_frame_gpu)
+        
+        # Compute the difference in DCT energies
+        dct_difference = cp.sum(cp.abs(prev_frame_dct - curr_frame_dct))
+        return float(dct_difference.get())  # Transfer result back to CPU
+    else:
+        # Perform DCT on CPU using OpenCV's cv2.dct
+        prev_frame_dct = cv2.dct(np.float32(prev_gray_frame))
+        curr_frame_dct = cv2.dct(np.float32(curr_gray_frame))
+        
+        # Compute the difference in DCT energies
+        dct_difference = np.sum(np.abs(prev_frame_dct - curr_frame_dct))
+        return dct_difference
        
