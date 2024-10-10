@@ -9,6 +9,7 @@ This project analyzes video complexity using various metrics such as advanced mo
 - **Parallel Processing**: Processes video frames in parallel to speed up computation using batch processing.
 - **Exponential Smoothing**: Smooths metrics over time to reduce noise in complexity measurements.
 - **Configurable Parameters**: Easily configure CRF, frame interval, and video resizing in a JSON file.
+- **GPU acceleration**: Use CUDA is GPU is defined otherwise fallback on CPU
 
 ## Requirements
 
