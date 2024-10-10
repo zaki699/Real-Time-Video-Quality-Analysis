@@ -83,14 +83,15 @@ def smooth_data(data, alpha=0.8):
     return pd.Series(data).ewm(alpha=alpha).mean().to_numpy()
 
 # Batch processing for parallel tasks
-def process_in_batches(frames, process_func, num_workers, batch_size=100):
+def process_in_batches(frames, process_func, num_workers, batch_size=100, **kwargs):
     """
     Process frames in batches using ProcessPoolExecutor.
     Args:
-    - frames: list of frames or frame pairs to process.
+    - frames: list of frames to process.
     - process_func: the function to apply to each batch.
     - num_workers: number of worker processes to use.
     - batch_size: number of frames per batch.
+    - kwargs: additional arguments to pass to the process function.
     Returns:
     - List of processed results.
     """
@@ -98,7 +99,8 @@ def process_in_batches(frames, process_func, num_workers, batch_size=100):
     with Executor(max_workers=num_workers) as executor:
         for i in tqdm(range(0, len(frames), batch_size), desc="Batch Processing"):
             batch = frames[i:i+batch_size]
-            results.extend(executor.map(process_func, batch))
+            process_with_args = functools.partial(process_func, **kwargs)  # Bind additional arguments
+            results.extend(executor.map(process_with_args, batch))
     return results
 
 # Calculate average scene complexity based on multiple metrics
@@ -138,10 +140,12 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     color_histogram_complexity = process_in_batches(frames, functools.partial(process_color_histogram_frame, resize_width=resize_width, resize_height=resize_height), num_workers, batch_size)
     smoothed_color_histogram_complexity = smooth_data(color_histogram_complexity, smoothing_factor)
 
-    # Calculate the frame rate variation using the timestamps from the frames
+      # Calculate the frame rate variation using the timestamps from the frames
     frame_timestamps = extract_frame_timestamps(video_path, frame_interval)
-    framerate_variation = process_in_batches(frame_timestamps, process_frame_interval_for_parallel, num_workers, batch_size)
+    timestamp_pairs = list(zip(frame_timestamps[:-1], frame_timestamps[1:]))  # Create pairs of consecutive timestamps
+    framerate_variation = process_in_batches(timestamp_pairs, process_frame_interval_for_parallel, num_workers, batch_size)
     smoothed_framerate_variation = smooth_data(framerate_variation, smoothing_factor)
+
 
     # Logging smoothed values
     logger.info(f"Smoothed Advanced Motion Complexity: {np.mean(smoothed_motion_complexity):.2f}")
@@ -165,17 +169,17 @@ def calculate_average_scene_complexity(video_path, resize_width, resize_height, 
     )
 
 # Helper function to calculate frame rate between two timestamps
-def process_frame_interval_for_parallel(prev_timestamp, curr_timestamp):
+def process_frame_interval_for_parallel(timestamps):
     """
     A helper function to calculate the frame rate from two timestamps.
 
     Parameters:
-        prev_timestamp (float): The timestamp of the previous frame in milliseconds.
-        curr_timestamp (float): The timestamp of the current frame in milliseconds.
+        timestamps (tuple): A tuple containing (prev_timestamp, curr_timestamp).
 
     Returns:
         float: The frame rate between two frames.
     """
+    prev_timestamp, curr_timestamp = timestamps
     frame_interval = (curr_timestamp - prev_timestamp) / 1000.0  # Convert ms to s
     if frame_interval > 0:
         return 1.0 / frame_interval  # Frame rate
@@ -283,18 +287,29 @@ def calculate_temporal_dct(video_path, resize_width, resize_height, frame_interv
     prev_gray_frame = None
     temporal_dct_energies = []
 
-    for frame in frames:
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    for pair in frames:
+        # Ensure the frame pair is valid
+        frame, previous_frame = pair
+        if frame is None or previous_frame is None or not isinstance(frame, (np.ndarray, cv2.UMat)):
+            logger.error(f"Invalid frame detected: type={type(frame)}, skipping...")
+            continue
+
+
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+
+        # Resize the frame to the specified dimensions
         gray_frame = cv2.resize(gray_frame, (resize_width, resize_height))
 
         if prev_gray_frame is not None:
+            # Process temporal DCT between consecutive frames
             temporal_energy = process_temporal_dct_frame(prev_gray_frame, gray_frame, resize_width, resize_height)
             temporal_dct_energies.append(temporal_energy)
 
         prev_gray_frame = gray_frame
 
+    # Smooth and return the temporal DCT complexity
     smoothed_temporal_dct = smooth_data(temporal_dct_energies, smoothing_factor)
-    return np.mean(smoothed_temporal_dct) if smoothed_temporal_dct.size > 0 else 0.0
+    return np.mean(smoothed_temporal_dct) if len(smoothed_temporal_dct) > 0 else 0.0
 
 def process_temporal_dct_frame(prev_gray_frame, curr_gray_frame, resize_width, resize_height):
     prev_gray_frame = cv2.resize(prev_gray_frame, (resize_width, resize_height))
