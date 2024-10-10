@@ -65,6 +65,12 @@ python video_processing.py config.json sample_video.mp4
 
 This will process the sample_video.mp4 file and calculate the complexity and quality metrics, saving the results to video_quality_data.csv.
 
+One row for each piece of content analyzed.
+```bash
+Bitrate (kbps),Resolution (px),Frame Rate (fps),CRF,PSNR,SSIM,VMAF,Advanced Motion Complexity,DCT Complexity,Temporal DCT Complexity,Histogram Complexity,Edge Detection Complexity,ORB Feature Complexity,Color Histogram Complexity,Framerate Variation
+4486,1920x1080,30.0,23,50.78,0.994884,95.837165,1.8996385499013766,2257755.4423618754,235402.93371073596,2.701894116582357,177.94077592605998,0.08097739594415695,8.07616546666872,3.0000000000000004
+```
+
 ### Functionality Overview
 
 ## Key Functions
