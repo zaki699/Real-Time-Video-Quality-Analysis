@@ -238,7 +238,8 @@ def process_video_and_extract_metrics(input_video, config):
          histogram_complexity,
          edge_detection_complexity,
          orb_feature_complexity,
-         color_histogram_complexity) = calculate_average_scene_complexity(
+         color_histogram_complexity,
+         smoothed_framerate_variation) = calculate_average_scene_complexity(
              encoded_video,
              resize_width,
              resize_height,
@@ -253,7 +254,8 @@ def process_video_and_extract_metrics(input_video, config):
             'Histogram Complexity': histogram_complexity,
             'Edge Detection Complexity': edge_detection_complexity,
             'ORB Feature Complexity': orb_feature_complexity,
-            'Color Histogram Complexity': color_histogram_complexity
+            'Color Histogram Complexity': color_histogram_complexity,
+            'Framerate Variation': smoothed_framerate_variation
         })
 
         thread_safe_update_csv(metrics, csv_file='video_quality_data.csv')
@@ -315,6 +317,5 @@ def main():
         raise
 
 if __name__ == "__main__":
-    print("Main function is being executed.")
     main()
     listener.stop()
